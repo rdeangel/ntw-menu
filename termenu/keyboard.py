@@ -18,7 +18,6 @@ ANSI_SEQUENCES = dict(
     home = '\x1bOH',
     end = '\x1bOF',
     insert = '\x1b[2~',
-    delete = '\x1b[3~',
     pageUp = '\x1b[5~',
     pageDown = '\x1b[6~',
     ctrl_backspace = '\x7f',
@@ -43,8 +42,8 @@ KEY_NAMES = dict((v,k) for k,v in ANSI_SEQUENCES.items())
 KEY_NAMES.update({
     '\x1b' : 'esc',
     '\n' : 'enter',
-    ' ' : 'space',
-    #'\x7f' : 'ctrl_backspace',
+    '\x1b[3~' : 'delete',
+    ' ': 'space',
     '\x08' : 'backspace',
 })
 

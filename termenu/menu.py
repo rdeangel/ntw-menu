@@ -387,6 +387,9 @@ class FilterPlugin(Plugin):
                 self.text = []
             self.text.append(key)
             self._refilter()
+        elif self.text and key == "space":
+            self.text.append(' ')
+            self._refilter()
         elif self.text and key == "backspace":
             del self.text[-1]
             self._refilter()
