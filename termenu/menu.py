@@ -1,11 +1,12 @@
 import io
 import sys
+import shelve
 import re
 from pyfiglet import Figlet
 from . import ansi
 
 def show_menu(title, options, default=None, height=None, width=None,
-    multiselect=False, precolored=False):
+    precolored=False):
     """
     Shows an interactive menu in the terminal.
 
@@ -14,12 +15,8 @@ def show_menu(title, options, default=None, height=None, width=None,
         default: initial option to highlight
         height: maximum height of the menu
         width: maximum width of the menu
-        multiselect: allow multiple items to be selected?
         precolored: allow strings with embedded ANSI commands
 
-    Returns:
-        * If multiselect is True, returns a list of selected options.
-        * If mutliselect is False, returns the selected option.
         * If an option is a 2-tuple, the first item will be displayed and the
           second item will be returned.
         * If menu is cancelled (Esc pressed), returns None.
@@ -37,7 +34,7 @@ def show_menu(title, options, default=None, height=None, width=None,
     if precolored:
         plugins.append(PrecoloredPlugin())
     menu = Termenu(options, default=default, height=height,
-                   width=width, multiselect=multiselect, plugins=plugins)
+                   width=width, plugins=plugins)
     return menu.show()
 
 try:
@@ -93,17 +90,21 @@ class Termenu(object):
             self.selected = False
             self.attrs = attrs
 
-    def __init__(self, options, menu_lev, default=None, height=None,
-        width=None, multiselect=True, heartbeat=None, plugins=None):
+    def __init__(self, options, menu_lev, cursor, scroll, filter_text, 
+        height, width, memory, selection_memory,
+        shelf, default=None, heartbeat=None, plugins=None):
         for plugin in plugins or []:
             register_plugin(self, plugin)
         self.options = self._make_option_objects(options)
         self.menu_lev = menu_lev
         self.height = min(height or 10, len(self.options))
         self.width = self._compute_width(width, self.options)
-        self.multiselect = multiselect
-        self.cursor = 0
-        self.scroll = 0
+        self.cursor = cursor
+        self.scroll = scroll
+        self.filter_text = filter_text
+        self.memory = memory
+        self.selection_memory = selection_memory
+        self.shelve_file = shelf
         self._heartbeat = heartbeat
         self._aborted = False
         self._lineCache = {}
@@ -118,26 +119,38 @@ class Termenu(object):
                 try:
                     selected.append(self._get_active_option().result)
                 except:
-                    return False, 1
-            return selected[0], self.menu_lev
+                    return False, 1, 0, 0, []
+            return (selected[0], self.menu_lev, self.cursor,
+            self.scroll, self.filter_text)
 
     @pluggable
     def show(self):
         from termenu import keyboard
-        self._print_menu()
-        ansi.save_position()
         ansi.hide_cursor()
+        if self.filter_text == None:
+            self._print_menu()
+        elif str(self.filter_text) == ('[]' or ''):
+            self.filter_text = None
+            self._print_menu()
+        else:
+            self._on_key('')
+            self._print_menu()
+        ansi.save_position()
         try:
             for key in keyboard.keyboard_listener(self._heartbeat):
                 stop = self._on_key(key)
                 if stop:
                     return self.get_result()
                 self._goto_top()
-                self._print_menu()
+                if str(self.filter_text) == ('[]' or ''):
+                    self.filter_text = None
+                    self._print_menu()
+                else:
+                    self._print_menu()
         finally:
             self._clear_menu()
             ansi.show_cursor()
-            
+
     def clear_full_menu():
         ansi.clear_screen()
         termheight = get_terminal_size()[1]
@@ -159,9 +172,6 @@ class Termenu(object):
     def _set_default(self, default):
         # handle default selection of multiple options
         if isinstance(default, list) and default:
-            if not self.multiselect:
-                raise ValueError("multiple defaults passed, "
-                + "but multiselect is False")
             for option in self.options:
                 if option.text in default:
                     option.selected = True
@@ -210,12 +220,18 @@ class Termenu(object):
             options.append(
                 ("(%s)" if i == self.cursor else "%s") % option.text)
         return " ".join(options)
-
+    
     @pluggable
     def _on_key(self, key):
         func = "_on_" + key
         if hasattr(self, func):
             return getattr(self, func)()
+            
+    @pluggable
+    def _return_filter_text(self, text, cursor, scroll):
+        self.filter_text = list(text)
+        self.filter_cursor = cursor
+        self.filter_scroll = scroll
 
     @pluggable
     def _on_heartbeat(self):
@@ -269,10 +285,10 @@ class Termenu(object):
             self.scroll += height
         else:
             self.scroll = len(self.options) - height
-
-    def _on_ctrl_R(self):
-        self._aborted = True
-        return True #stop loop
+    
+    def _on_ctrl_E(self):
+        self.menu_lev = 100
+        return self.menu_lev
 
     def _on_home(self):
         self.cursor = 0
@@ -281,10 +297,11 @@ class Termenu(object):
     def _on_end(self):
         self.scroll = len(self.options) - self.height
         self.cursor = self.height - 1
-
+    
+    @pluggable
     def _on_esc(self):
-        self.menu_lev = 100
-        return self.menu_lev
+        self.menu_lev = self.menu_lev-1
+        return True
         
     @pluggable
     def _on_enter(self):
@@ -301,12 +318,13 @@ class Termenu(object):
     @pluggable
     def _clear_menu(self):
         ansi.restore_position()
+        termwidth = get_terminal_size()[0]
         termheight = get_terminal_size()[1]
         for i in xrange(termheight):
-            ansi.clear_eol()
+            ansi.clear_line()
             ansi.up()
-        ansi.clear_eol()
-
+        ansi.back(termwidth)
+        
     @pluggable
     def _print_menu(self):
         ansi.write("\r")
@@ -319,6 +337,27 @@ class Termenu(object):
             else:
                 ansi.write(option + "\n")
                 self._lineCache[index] = option
+        if self.memory and (len(self.options) > 0):
+            shelf_store = shelve.open(self.shelve_file)
+            if self.menu_lev == 1:
+                if self.selection_memory:
+                    shelf_store['dev_cursor'] = self.cursor
+                    shelf_store['dev_scroll'] = self.scroll
+                else:
+                    shelf_store['dev_cursor'] = 0
+                    shelf_store['dev_scroll'] = 0
+                shelf_store['dev_filter'] = self.filter_text
+            if self.menu_lev == 2:
+                shelf_store['proto_cursor'] = self.cursor
+                shelf_store['proto_scroll'] = self.scroll
+                shelf_store['proto_filter'] = self.filter_text
+            shelf_store.close()
+    
+    @pluggable
+    def _on_key(self, key):
+        func = "_on_" + key
+        if hasattr(self, func):
+            return getattr(self, func)()
 
     @pluggable
     def _adjust_width(self, option):
@@ -328,6 +367,12 @@ class Termenu(object):
             option = option + " " * (self.width - len(option))
         return option
 
+    @pluggable
+    def _refilter(self):
+        cursor = self.cursor
+        scroll = self.scroll
+        
+        
     @pluggable
     def _decorate_flags(self, index):
         return dict(
@@ -372,16 +417,23 @@ class Termenu(object):
         return option
 
 class FilterPlugin(Plugin):
-    def __init__(self):
-        self.text = None
+    def __init__(self, filter_text, filter_cursor, filter_scroll):
+        self.text = filter_text
+        self.cursor = filter_cursor
+        self.scroll = filter_scroll
 
     def _make_option_objects(self, options):
         objects = self.parent._make_option_objects(options)
         self._allOptions = objects[:]
         return objects
 
+    def _return_filter_text(self, text, cursor, scroll):
+        return list(text), cursor, scroll
+        
     def _on_key(self, key):
         prevent = False
+        if key == "":
+            self._refilter()
         if len(key) == 1 and 32 < ord(key) <= 127:
             if not self.text:
                 self.text = []
@@ -396,14 +448,15 @@ class FilterPlugin(Plugin):
         elif self.text is not None and key == "esc":
             self.text = None
             prevent = True
-            self._refilter()
+            if self.text != "":
+                self._refilter()
 
         if not prevent:
             return self.parent._on_key(key)
 
     def _print_menu(self):
         self.parent._print_menu()
-
+        
         for i in xrange(0, self.host.height - len(self.host.options)):
             ansi.clear_eol()
             ansi.write("\n")
@@ -413,34 +466,44 @@ class FilterPlugin(Plugin):
         ansi.clear_eol()
 
     def _refilter(self):
+        width_size, height_size = get_terminal_size()
         self.host._clear_cache()
         self.host.options = []
-        text = "".join(self.text or []).lower()
+        if str(self.text) != "None":
+            text = "".join(self.text)
+            search_text = text.lower()
+        else:
+            search_text = text = ""
+        record_counter = 0
+        match_counter = 0
+
         # filter the matching options
         for option in self._allOptions:
             try:
-                regex_text = re.match(".*" + text + ".*",
+                regex_text = re.match(".*" + search_text + ".*",
                     option.text.lower())
                 if regex_text:
-                    if (regex_text.group(0) in option.text.lower() or
-                        option.attrs.get("showAlways")):
-                        self.host.options.append(option)
+                    self.host.options.append(option)
             except:
                 break
-        # select the first matching element (showAlways no match required)
-        self.host.scroll = 0
-        self.host.cursor = 0
-        for i, option in enumerate(self.host.options):
-            try:
-                regex_text = re.match(text, option.text.lower())
-                if regex_text:
-                    if (not option.attrs.get("showAlways") and
-                        regex_text.group(0) in option.text.lower()):
-                        self.host.cursor = i
-                        break
-            except:
-                break
+            record_counter+=1
+
+        if (((len(self.host.options) == 1) and (self.host.cursor == 1)) or
+        ((self.host.cursor + self.host.scroll) >= len(self.host.options))):
+            self.host.cursor = 0
+            self.host.scroll = 0
+            self.cursor = self.host.cursor
+            self.scroll = self.host.scroll
+        elif height_size-8 <= len(self.host.options):
+            if self.cursor > 0:
+                self.host.cursor = self.cursor
+            if self.scroll > 0:
+                self.host.scroll = self.scroll
+            self.cursor = self.host.cursor
+            self.scroll = self.host.scroll
         ansi.hide_cursor()
+        self.parent._return_filter_text(text,self.cursor,self.scroll)
+
 
 class ColourPlugin(Plugin):
     def _decorate_flags(self, index):
@@ -537,4 +600,4 @@ if __name__ == "__main__":
     evens = OptionGroup("Even Numbers", [
         ("%06d" % i, i) for i in xrange(2, 10, 2)
         ])
-    print(show_menu("List Of Numbers", [odds, evens], multiselect=True))
+    print(show_menu("List Of Numbers", [odds, evens]))

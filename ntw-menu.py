@@ -4,6 +4,7 @@ import configparser
 import os
 import sys
 import subprocess
+import shelve
 import time
 import numpy as np
 import csv
@@ -11,34 +12,42 @@ from termenu import ansi
 import termenu
 
 """
-ntw-menu - version 1.0
+ntw-menu - version 1.3
 
 This is a terminal network menu.
 
 Written by Rocco De Angelis
 """
 
-def load_menu(list_values,banner,menu_lev,subtitle,filter,clear_menu,
-    min_term_width,min_term_height):
+def load_menu(list_values, banner, menu_lev, cursor, scroll, subtitle,
+    filter, filter_text, clear_menu, min_term_width, min_term_height,
+    user_memory, user_selection_memory, shelf):
     width_size, height_size = termenu.get_terminal_size()
+    height=(height_size - min_term_height)
+    
     if (width_size > min_term_width) and (height_size > min_term_height):
         if filter:
-            selected_value, menu_lev = termenu.Termenu(list_values, menu_lev,
-                height=(height_size - min_term_height), width=width_size, 
-                multiselect=False,
+            (selected_value, menu_lev, cursor,
+            scroll, filter_text) = termenu.Termenu(
+                list_values, menu_lev, cursor, scroll, filter_text,
+                height, width_size, user_memory,
+                user_selection_memory, shelf,
                 plugins=[termenu.TitlePyfigletPlugin(
-                    banner,subtitle,clear_menu),
-                termenu.ColourPlugin(),termenu.FilterPlugin()]).show()
+                    banner, subtitle, clear_menu),
+                termenu.ColourPlugin(),
+                termenu.FilterPlugin(filter_text,cursor,scroll)]).show()
         else:
-            selected_value, menu_lev = termenu.Termenu(list_values, menu_lev,
-                height=(height_size - min_term_height), width=width_size, 
-                multiselect=False,
+            (selected_value, menu_lev, cursor,
+            scroll, filter_text) = termenu.Termenu(
+                list_values, menu_lev, cursor, scroll, filter_text,
+                height, width_size, user_memory,
+                user_selection_memory, shelf,
                 plugins=[termenu.TitlePyfigletPlugin(
-                    banner,subtitle,clear_menu),
+                    banner, subtitle, clear_menu),
                 termenu.ColourPlugin()]).show()
     else:
         raise Exception("Error: terminal size is too small to display menu")
-    return selected_value, menu_lev
+    return selected_value, menu_lev, cursor, scroll, filter_text
 
 def counter(seconds):
     countdown = seconds
@@ -49,11 +58,14 @@ def counter(seconds):
         countdown-=1
         time.sleep(1)
 
-def open_terminal_session(conn_proto, user, host):
+def open_terminal_session(conn_proto, user, host, 
+    back_to_menu_timer, connection_timeout):
     user_required_msg = ("A username needs to be supplied for an ssh "
         + "connection.")
     back_to_menu_msg = "Returning to ntw-menu..... "
     enter_user_msg = "Enter username:\n"
+    timer = back_to_menu_timer
+    timeout = connection_timeout
     
     ansi.up(1)
     if conn_proto == "ssh":
@@ -61,44 +73,44 @@ def open_terminal_session(conn_proto, user, host):
         user = input()
         if user == "":
             ansi.write(user_required_msg + "\n" + back_to_menu_msg)
-            counter(3)
+            counter(timer)
             return 2
         else:
-            conn_cli = (conn_proto + " -o ConnectTimeout=5 "
-                + "-o StrictHostKeyChecking=no -l " + user + " " + host)
+            conn_cli = (conn_proto + " -o ConnectTimeout=" + str(timeout)
+                + " -o StrictHostKeyChecking=no -l " + user + " " + host)
             ansi.write("Connecting: " + conn_cli + "\n")
             subprocess.call(conn_cli, shell=True)
             ansi.write(back_to_menu_msg)
-            counter(3)
+            counter(timer)
             return 1
     elif conn_proto == "telnet":
         conn_cli = conn_proto + " " + host
         ansi.write("Connecting: " + conn_cli + "\n")
         subprocess.call(conn_cli, shell=True)
         ansi.write(back_to_menu_msg)
-        counter(3)
+        counter(timer)
         return 1
     elif conn_proto == "ftp":
         conn_cli = conn_proto + " -nv " + host
         ansi.write("Connecting: " + conn_cli + "\n")
         subprocess.call(conn_cli, shell=True)
         ansi.write(back_to_menu_msg)
-        counter(3)
+        counter(timer)
         return 1
     elif conn_proto == "sftp":
         ansi.write(enter_user_msg)
         user = input()
         if user == "":
             ansi.write(user_required_msg + "\n" + back_to_menu_msg)
-            counter(3)
+            counter(timer)
             return 2
         else:
             conn_cli = (conn_proto + " -o StrictHostKeyChecking=no "
-                + "-o ConnectTimeout=5 " + user + "@" + host)
+                + "-o ConnectTimeout=" + str(timeout) + " " + user + "@" + host)
             ansi.write("Connecting: " + conn_cli + "\n")
             subprocess.call(conn_cli, shell=True)
             ansi.write(back_to_menu_msg)
-            counter(3)
+            counter(timer)
             return 1
     else:
         return 2
@@ -107,6 +119,7 @@ def open_terminal_session(conn_proto, user, host):
 def main():
     #fix variable assignment
     display_menu = True
+    back_to_menu_timer = 0
     static_dev_list_file = ""
     static_list_data = np.array([])
     import_dev_list_file = ""
@@ -118,7 +131,19 @@ def main():
     device_selected = False
     dev_list_file_presence = 2
     conn_proto = ["ssh", "telnet", "sftp", "ftp"]
+    connection_timeout = 0
     user = ""
+    #user cache directory and files
+    user_cache_directory = os.path.join(str(os.getenv("HOME")),
+    ".ntw-menu")
+    shelve_file = os.path.join(str(os.getenv("HOME")),
+    ".ntw-menu", "shelf")
+    no_memory_file = os.path.join(str(os.getenv("HOME")),
+    ".ntw-menu", "no_mem")
+    
+    #create user cache directory if it doesn't exist
+    if not os.path.exists(user_cache_directory):
+        os.makedirs(user_cache_directory)
 
     #define and read config file
     config_file = os.path.join(
@@ -128,13 +153,32 @@ def main():
         config.read(config_file)
 
         #load config files setting
-        banner = config["MENU_PARAMETERS"]["Banner"]
-        min_term_width = int(config["MENU_PARAMETERS"]["Min_Term_Width"])
-        min_term_height = int(config["MENU_PARAMETERS"]["Min_Term_Height"])
+        banner = (config["MENU_PARAMETERS"]
+            ["Banner"])
+        min_term_width = int(config["MENU_PARAMETERS"]
+            ["Min_Term_Width"])
+        min_term_height = int(config["MENU_PARAMETERS"]
+            ["Min_Term_Height"])
+        back_to_menu_timer = int(config["MENU_PARAMETERS"]
+            ["Back_To_Menu_Timer"])
+        connection_timeout = int(config["MENU_PARAMETERS"]
+            ["Connection_Timeout"])
         static_dev_list = (config["DATA_PARAMETERS"]
             ["Static_Device_List_File"])
         import_dev_list = (config["DATA_PARAMETERS"]
             ["Import_Device_List_File"])
+        user_memory = (config["SESSION_MEMORY_PARAMETERS"]
+            ["User_Memory"])
+        if user_memory == "True":
+            user_memory = True
+        else:
+            user_memory = False
+        user_selection_memory = (config["SESSION_MEMORY_PARAMETERS"]
+            ["user_selection_memory"])
+        if user_selection_memory == "True":
+            user_selection_memory = True
+        else:
+            user_selection_memory = False
     except:
         print("Error: it is not possible to read config from file: "
         + config_file)
@@ -155,31 +199,31 @@ def main():
         dev_list_file_presence-=1
 
     if dev_list_file_presence == 0:
-        print("No data file has been configured to show a menu!")
+        print("No data file has been configured to show a device list menu!")
         sys.exit(0)
 
     #load data from static data file into a numpy array
     static_dev_list_file = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)),static_dev_list)
+        os.path.dirname(os.path.realpath(__file__)), static_dev_list)
     if os.path.isfile(static_dev_list_file):
         try:
             static_list_data = np.loadtxt(static_dev_list_file, 
                 dtype=str, delimiter=",", skiprows=int(1))       
         except:
-            load_error = ("Error: it is not possible to correctly load job "
+            load_error = ("Error: it is not possible to correctly load "
                 + "data from file: " + static_dev_list_file + "\n")
             print(load_error)
             static_list_data = np.array([static_list_data])
 
     #load data from imported data file into a numpy array
     import_dev_list_file = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)),import_dev_list)
+        os.path.dirname(os.path.realpath(__file__)), import_dev_list)
     if os.path.isfile(import_dev_list_file):
         try:
             import_list_data = np.loadtxt(import_dev_list_file, 
                 dtype=str, delimiter=",", skiprows=int(1))
         except:
-            load_error = ("Error: it is not possible to correctly load job "
+            load_error = ("Error: it is not possible to correctly load "
                 + "data from file: " + import_dev_list_file + "\n")
             print(load_error)
             import_list_data = np.array([import_list_data])
@@ -199,7 +243,7 @@ def main():
 
     #merge imported file and static device list file
     if static_list_data.size >= 1 and import_list_data.size >= 1:
-        dev_list_data = np.concatenate((import_list_data,static_list_data),
+        dev_list_data = np.concatenate((import_list_data, static_list_data),
             axis=0)
     elif static_list_data.size != 0:
         dev_list_data = static_list_data
@@ -223,6 +267,43 @@ def main():
                 + dev_list_data[i][1])].append(dev_list_data[i][1])
         list_devices = sorted(list(devicedict))
 
+    if os.path.exists(no_memory_file):
+        user_memory = False
+        
+    #Check if user_memory is used
+    if user_memory:
+        if not os.path.exists(shelve_file):
+            dev_cursor = 0
+            dev_scroll = 0
+            proto_cursor = 0
+            proto_scroll = 0
+            dev_filter = None
+            proto_filter = None
+            shelf_store = shelve.open(shelve_file)
+            shelf_store['dev_cursor'] = dev_cursor
+            shelf_store['dev_scroll'] = dev_scroll
+            shelf_store['proto_cursor'] = proto_cursor
+            shelf_store['proto_scroll'] = proto_scroll
+            shelf_store['dev_filter'] = dev_filter
+            shelf_store['proto_filter'] = proto_filter
+            shelf_store.close()
+        else:
+            shelf_store = shelve.open(shelve_file)
+            dev_cursor = shelf_store['dev_cursor']
+            dev_scroll = shelf_store['dev_scroll']
+            proto_cursor = shelf_store['proto_cursor']
+            proto_scroll = shelf_store['proto_scroll']
+            dev_filter = shelf_store['dev_filter']
+            proto_filter = shelf_store['proto_filter']
+            shelf_store.close()
+    else:
+        dev_cursor = 0
+        dev_scroll = 0
+        proto_cursor = 0
+        proto_scroll = 0
+        dev_filter = None
+        proto_filter = None
+
     ansi.clear_screen()
     while display_menu == True:
         try:
@@ -230,46 +311,52 @@ def main():
             if menu_lev == 1:
                 termenu.Termenu.clear_full_menu()
                 if list_devices:
-                    device_selected, menu_lev = load_menu(
-                        list_devices,banner,
-                        1, "List of Device Sessions",
-                        True,True,
-                        min_term_width,min_term_height
+                    (device_selected, menu_lev, dev_cursor,
+                    dev_scroll, dev_filter) = load_menu(
+                        list_devices, banner,
+                        1, dev_cursor, dev_scroll, "Device Sessions",
+                        True, dev_filter, True,
+                        min_term_width, min_term_height, user_memory,
+                        user_selection_memory, shelve_file
                     )
                     menu_lev+=1
                     if device_selected:
-                            list_addresses = []
-                            if (len(devicedict[device_selected])) > 1:
-                                for i in range(
-                                    len(devicedict[device_selected])
-                                ):
-                                    list_addresses.append(
-                                        devicedict[device_selected][i])
-                            else:
-                                list_addresses = [
-                                    devicedict[device_selected][0]
-                                ]
-                            session_selected = list_addresses[0]
+                        list_addresses = []
+                        if (len(devicedict[device_selected])) > 1:
+                            for i in range(
+                                len(devicedict[device_selected])
+                            ):
+                                list_addresses.append(
+                                    devicedict[device_selected][i])
+                        else:
+                            list_addresses = [
+                                devicedict[device_selected][0]
+                            ]
+                        session_selected = list_addresses[0]
             #Device Connection Protocol Level
             if menu_lev == 2:
                 termenu.Termenu.clear_full_menu()
                 if session_selected:
-                        conn_proto_selected, menu_lev = load_menu(
-                            conn_proto,banner,
-                            2,
-                            "List connection protocols for address "
-                            + session_selected,
-                            False,False,
-                            min_term_width,min_term_height
+                    (conn_proto_selected, menu_lev, proto_cursor,
+                    proto_scroll, proto_filter) = load_menu(
+                        conn_proto, banner,
+                        2, proto_cursor, proto_scroll,
+                        "Session Protocols for "
+                        + session_selected,
+                        False, proto_filter, False,
+                        min_term_width, min_term_height, user_memory,
+                        user_selection_memory, shelve_file
+                    )
+                    if menu_lev == 100:
+                        break
+                    if menu_lev != 1:
+                        menu_lev = open_terminal_session(
+                            conn_proto_selected,
+                            user,
+                            session_selected,
+                            back_to_menu_timer,
+                            connection_timeout
                         )
-                        if menu_lev == 100:
-                            break
-                        if menu_lev != 1:
-                            menu_lev = open_terminal_session(
-                                conn_proto_selected,
-                                user,
-                                session_selected
-                            )
                 else:
                     menu_lev = 1
             session_selected = False
@@ -297,7 +384,9 @@ if __name__ == "__main__":
         main()
     #reset terminal and exit on Ctrl-C
     except KeyboardInterrupt:
+        ansi.back(10)
         ansi.clear_screen()
         ansi.write("ntw-menu - Exited with CTRL-C\n")
         os.system("reset")
+        ansi.show_cursor()
         sys.exit(0)

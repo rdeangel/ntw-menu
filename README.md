@@ -2,6 +2,10 @@ ntw-menu
 ============================================================
 Network Menu - python3
 
+Demo:
+![ntw-menu_demo](ntw-menu_demo.gif)
+
+
 ntw-menu uses a modifed version of Termenu which you can find at https://github.com/elifiner/termenu
 
 Download ntw-menu from git
@@ -26,7 +30,13 @@ The following parameters are used by ntw-menu.py:
 	Banner
 	Min_Term_Width
 	Min_Term_Height
-
+	Back_To_Menu_Timer
+	Connection_Timeout
+	
+	[SESSION_MEMORY_PARAMETERS]
+	User_Memory
+	User_Selection_Memory
+	
 	[DATA_PARAMETERS]
 	Static_Device_List_File
 	Import_Device_List_File
@@ -35,7 +45,8 @@ The following parameters are used by ntw-menu.py:
 while the following parameters are used by ntw-menu_solarwinds_import.py:
 
 	[DATA_PARAMETERS]
-	Import_Device_List_File =
+	Import_Device_List_File = 
+
 
 	[SOLARWINDS_PARAMETERS]
 	SW_Host
