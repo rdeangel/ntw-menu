@@ -86,8 +86,8 @@ Keyboard usage
 	ESC = Move to previous menu or reset filter
 	CTRL-B = Scroll Up
 	CTRL-F = Scroll Down
-      	CTRL-E = exit
-      	CTRL-C = forced exit
+	CTRL-E = exit
+	CTRL-C = forced exit
 
 NOTE: Make sure your ssh client is using ANSI terminal emulation.
 
