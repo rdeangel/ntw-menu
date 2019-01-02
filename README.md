@@ -81,15 +81,15 @@ while the following parameters are used by ntw-menu_solarwinds_import.py:
 	
 Keyboard usage
 ---------------------------------
-      ALPHANUMBER + SYMBOL KEYs = use to filter device list
-      ENTER = Select a menu option and move to the next menu/input
-      ESC = Move to previous menu or reset filter
-      CTRL-B = Scroll Up
-      CTRL-F = Scroll Down
-      CTRL-E = exit
-      CTRL-C = forced exit
+	ALPHANUMBER + SYMBOL KEYs = use to filter device list
+	ENTER = Select a menu option and move to the next menu/input
+	ESC = Move to previous menu or reset filter
+	CTRL-B = Scroll Up
+	CTRL-F = Scroll Down
+      	CTRL-E = exit
+      	CTRL-C = forced exit
 
-NOTE: Make sure your ssh client is using ANSI emulation.
+NOTE: Make sure your ssh client is using ANSI terminal emulation.
 
 
 Device list import scheduling
