@@ -81,7 +81,7 @@ while the following parameters are used by ntw-menu_solarwinds_import.py:
 	
 Keyboard usage
 ---------------------------------
-	ALPHANUMBER + SYMBOL KEYs = use to filter device list
+	ALPHANUMERIC + SYMBOL KEYs = use to filter device list
 	ENTER = Select a menu option and move to the next menu/input
 	ESC = Move to previous menu or reset filter
 	CTRL-B = Scroll Up
