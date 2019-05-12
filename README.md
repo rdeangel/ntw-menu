@@ -3,6 +3,7 @@ ntw-menu
 Network Menu (ANSI Terminal) - python3
 
 Demo:
+
 ![ntw-menu_demo](img/ntw-menu_demo.gif)
 
 ntw-menu uses a modifed version of Termenu which you can find at https://github.com/elifiner/termenu
@@ -111,9 +112,11 @@ Terminal clients support (change default settings)
 Windows Terminal clients specific setting:
 
 Putty:
+
 ![putty](img/putty.jpg)
 
 SecureCRT:
+
 ![scrt](img/scrt.jpg)
 
 JuiceSSH (Android client):
