@@ -300,8 +300,12 @@ class Termenu(object):
     
     @pluggable
     def _on_esc(self):
-        self.menu_lev = self.menu_lev-1
-        return True
+        if self.menu_lev > 1:
+            self.menu_lev = self.menu_lev-1
+            return True
+        else:
+            self.menu_lev = 102
+            return True
         
     @pluggable
     def _on_enter(self):

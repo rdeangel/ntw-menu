@@ -12,9 +12,9 @@ from termenu import ansi
 import termenu
 
 """
-ntw-menu - version 1.3
+ntw-menu - version 1.4
 
-This is a terminal network menu.
+This is a small terminal network session menu.                 
 
 Written by Rocco De Angelis
 """
@@ -58,7 +58,7 @@ def counter(seconds):
         countdown-=1
         time.sleep(1)
 
-def open_terminal_session(conn_proto, user, host, 
+def open_terminal_session(conn_proto, conn_port, user, host, 
     back_to_menu_timer, connection_timeout):
     user_required_msg = ("A username needs to be supplied for an ssh "
         + "connection.")
@@ -71,27 +71,35 @@ def open_terminal_session(conn_proto, user, host,
     if conn_proto == "ssh":
         ansi.write(enter_user_msg)
         user = input()
+
+        if conn_port == "":
+            conn_port = "22"        
         if user == "":
             ansi.write(user_required_msg + "\n" + back_to_menu_msg)
             counter(timer)
             return 2
         else:
             conn_cli = (conn_proto + " -o ConnectTimeout=" + str(timeout)
-                + " -o StrictHostKeyChecking=no -l " + user + " " + host)
+                + " -o StrictHostKeyChecking=no -p " + conn_port + " -l "
+                + user + " " + host)
             ansi.write("Connecting: " + conn_cli + "\n")
             subprocess.call(conn_cli, shell=True)
             ansi.write(back_to_menu_msg)
             counter(timer)
             return 1
     elif conn_proto == "telnet":
-        conn_cli = conn_proto + " " + host
+        if conn_port == "":
+            conn_port = "23"
+        conn_cli = conn_proto + " " + host + " " + conn_port
         ansi.write("Connecting: " + conn_cli + "\n")
         subprocess.call(conn_cli, shell=True)
         ansi.write(back_to_menu_msg)
         counter(timer)
         return 1
     elif conn_proto == "ftp":
-        conn_cli = conn_proto + " -nv " + host
+        if conn_port == "":
+            conn_port = "21"
+        conn_cli = conn_proto + " -nv " + host + " " + conn_port
         ansi.write("Connecting: " + conn_cli + "\n")
         subprocess.call(conn_cli, shell=True)
         ansi.write(back_to_menu_msg)
@@ -100,13 +108,16 @@ def open_terminal_session(conn_proto, user, host,
     elif conn_proto == "sftp":
         ansi.write(enter_user_msg)
         user = input()
+        if conn_port == "":
+            conn_port = "22"
         if user == "":
             ansi.write(user_required_msg + "\n" + back_to_menu_msg)
             counter(timer)
             return 2
         else:
             conn_cli = (conn_proto + " -o StrictHostKeyChecking=no "
-                + "-o ConnectTimeout=" + str(timeout) + " " + user + "@" + host)
+                + "-o ConnectTimeout=" + str(timeout) + " -P "
+                + conn_port + " " + user + "@" + host)
             ansi.write("Connecting: " + conn_cli + "\n")
             subprocess.call(conn_cli, shell=True)
             ansi.write(back_to_menu_msg)
@@ -130,7 +141,7 @@ def main():
     session_selected = False
     device_selected = False
     dev_list_file_presence = 2
-    conn_proto = ["ssh", "telnet", "sftp", "ftp"]
+    conn_proto_list = ["ssh", "telnet", "sftp", "ftp"]
     connection_timeout = 0
     user = ""
     #user cache directory and files
@@ -243,28 +254,73 @@ def main():
 
     #merge imported file and static device list file
     if static_list_data.size >= 1 and import_list_data.size >= 1:
-        dev_list_data = np.concatenate((import_list_data, static_list_data),
-            axis=0)
+        dev_list_data = np.concatenate(
+            (import_list_data, static_list_data), axis=0)
     elif static_list_data.size != 0:
         dev_list_data = static_list_data
     elif import_list_data.size != 0:
         dev_list_data = import_list_data
 
-    #deal with no data, single entry, or multiple entries in device
+    #deals with no data, single entry, or multiple entries in device
     #list data files
     if len(dev_list_data) == 0:
         print("Error Loading device list data, no data in data files")
     elif dev_list_data.ndim == 1:
-        devicedict[(dev_list_data[0] + " - " 
-        + dev_list_data[1])] = [dev_list_data[1]]
+        if dev_list_data[2] != "":
+            if dev_list_data[3] != "":
+                dev_list_dic_name = (dev_list_data[0] + " - " 
+                    + dev_list_data[1] + " [" + dev_list_data[2]
+                    + ":" + dev_list_data[3] + "]")
+                devicedict[dev_list_dic_name] = [dev_list_data[1]]
+            else:
+                dev_list_dic_name = (dev_list_data[0] + " - " 
+                    + dev_list_data[1] + " - " 
+                    + dev_list_data[2])
+                devicedict[dev_list_dic_name] = [dev_list_data[1]]
+        elif dev_list_data[2] == "":
+            dev_list_dic_name = (dev_list_data[0] + " - " 
+                + dev_list_data[1])
+            devicedict[dev_list_dic_name] = [dev_list_data[1]]
         list_devices = sorted(list(devicedict))
     else:
         for i in range(len(dev_list_data)):
-            if dev_list_data[i][0] not in devicedict:
-                devicedict[(dev_list_data[i][0] + " - " 
-                    + dev_list_data[i][1])] = []
-            devicedict[(dev_list_data[i][0] + " - " 
-                + dev_list_data[i][1])].append(dev_list_data[i][1])
+            if dev_list_data[i][2] != "":
+                if dev_list_data[i][3] != "":
+                    if dev_list_data[i][0] not in devicedict:
+                        dev_list_dic_name = (dev_list_data[i][0] + " - " 
+                            + dev_list_data[i][1] + " ["
+                            + dev_list_data[i][2] 
+                            + ":" + dev_list_data[i][3] + "]")
+                        devicedict[dev_list_dic_name] = []
+                    dev_list_dic_name = (dev_list_data[i][0] + " - " 
+                        + dev_list_data[i][1] + " ["
+                        + dev_list_data[i][2] 
+                        + ":" + dev_list_data[i][3] + "]")
+                    devicedict[dev_list_dic_name].append(
+                            [dev_list_data[i][1],
+                                dev_list_data[i][2],dev_list_data[i][3]])
+                else:
+                    if dev_list_data[i][0] not in devicedict:
+                        dev_list_dic_name = (dev_list_data[i][0] + " - " 
+                            + dev_list_data[i][1] + " ["
+                            + dev_list_data[i][2] + "]")
+                        devicedict[dev_list_dic_name]= []
+                    dev_list_dic_name = (dev_list_data[i][0] + " - " 
+                        + dev_list_data[i][1] + " ["
+                        + dev_list_data[i][2] + "]")
+                    devicedict[dev_list_dic_name].append(
+                            [dev_list_data[i][1],
+                                dev_list_data[i][2],dev_list_data[i][3]])
+            elif dev_list_data[i][2] == "":
+                if dev_list_data[i][0] not in devicedict:
+                    dev_list_dic_name = (dev_list_data[i][0] + " - " 
+                        + dev_list_data[i][1])
+                    devicedict[dev_list_dic_name]= []
+                dev_list_dic_name = (dev_list_data[i][0] + ' - ' 
+                    + dev_list_data[i][1])
+                devicedict[dev_list_dic_name].append(
+                        [dev_list_data[i][1],
+                        dev_list_data[i][2],dev_list_data[i][3]])
         list_devices = sorted(list(devicedict))
 
     if os.path.exists(no_memory_file):
@@ -272,7 +328,8 @@ def main():
         
     #Check if user_memory is used
     if user_memory:
-        if not os.path.exists(shelve_file):
+        if not (os.path.exists(shelve_file) or
+            os.path.exists(shelve_file + ".db")):
             dev_cursor = 0
             dev_scroll = 0
             proto_cursor = 0
@@ -319,61 +376,85 @@ def main():
                         min_term_width, min_term_height, user_memory,
                         user_selection_memory, shelve_file
                     )
-                    menu_lev+=1
+                    if menu_lev == 0:
+                        pass
+                    if menu_lev == (100 or 101):
+                        break
+                    if menu_lev == 102:
+                        menu_lev = 1
+                        continue
+                    else:
+                        menu_lev+=1
+                        
                     if device_selected:
-                        list_addresses = []
-                        if (len(devicedict[device_selected])) > 1:
-                            for i in range(
-                                len(devicedict[device_selected])
-                            ):
-                                list_addresses.append(
-                                    devicedict[device_selected][i])
-                        else:
-                            list_addresses = [
-                                devicedict[device_selected][0]
-                            ]
-                        session_selected = list_addresses[0]
+                        session_selected = [
+                            devicedict[device_selected][0][0],
+                            devicedict[device_selected][0][1],
+                            devicedict[device_selected][0][2]
+                        ]
+                        host_selected = str(session_selected[0])
+                        conn_proto_preselected = str(session_selected[1])
+                        conn_port = str(session_selected[2])                  
+                        if (conn_proto_preselected in conn_proto_list
+                            and host_selected != ""):
+                            menu_lev = 0
+                        if (conn_proto_preselected == "" 
+                            and host_selected != "" and menu_lev == 0):
+                            menu_lev = 2
+                        elif host_selected == "" and menu_lev == 1:
+                            menu_lev = 100
             #Device Connection Protocol Level
             if menu_lev == 2:
                 termenu.Termenu.clear_full_menu()
                 if session_selected:
                     (conn_proto_selected, menu_lev, proto_cursor,
                     proto_scroll, proto_filter) = load_menu(
-                        conn_proto, banner,
+                        conn_proto_list, banner,
                         2, proto_cursor, proto_scroll,
                         "Session Protocols for "
-                        + session_selected,
+                        + host_selected,
                         False, proto_filter, False,
                         min_term_width, min_term_height, user_memory,
                         user_selection_memory, shelve_file
                     )
                     if menu_lev == 100:
                         break
-                    if menu_lev != 1:
+                    if menu_lev > 1:
                         menu_lev = open_terminal_session(
                             conn_proto_selected,
-                            user,
-                            session_selected,
+                            conn_port, user,
+                            host_selected,
                             back_to_menu_timer,
                             connection_timeout
                         )
                 else:
                     menu_lev = 1
+            if menu_lev == 0:
+                menu_lev = open_terminal_session(
+                    conn_proto_preselected,
+                    conn_port, user,
+                    host_selected,
+                    back_to_menu_timer,
+                    connection_timeout
+                )
             session_selected = False
             if menu_lev == 101:
                 break
+            if menu_lev == 102:
+                menu_lev = 1
+                continue
         except ValueError as e:
             termenu.Termenu.clear_full_menu() 
-            #print("ValueError exception: " + str(e))
-            #sys.exit(0)
+            print("ValueError exception: " + str(e))
+            sys.exit(0)
         except TypeError as e:
             termenu.Termenu.clear_full_menu()  
-            #print("TypeError exception: " + str(e))
-            #sys.exit(0)
+            print("TypeError exception: " + str(e))
+            sys.exit(0)
         except AttributeError as e:
             termenu.Termenu.clear_full_menu()  
-            #print("AttributeError exception: " + str(e))
-            #sys.exit(0)
+            print("AttributeError exception: " + str(e))
+            sys.exit(0)
         except Exception as e:
             termenu.Termenu.clear_full_menu()  
             print("Exception: " + str(e))
