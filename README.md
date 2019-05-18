@@ -107,23 +107,23 @@ Keyboard usage
 NOTE: Make sure your ssh client is using ANSI terminal emulation.
 
 
-Terminal clients support (change default settings)
+PC Terminal Clients support tested
 ---------------------------------
-Windows Terminal clients specific setting:
 
-Putty:
+1. Linux Terminal
+2. Putty
+3. SecureCRT (requires settings to be checked for correct emulation and backspace key mapping):
 
-![putty](img/putty.jpg)
+SecureCRT Settings:
 
-SecureCRT:
+![scrt1](img/scrt1.jpg)
+![scrt2](img/scrt2.jpg)
 
-![scrt](img/scrt.jpg)
 
-JuiceSSH (Android client):
-Backspace: Legacy (sends ^H)
-
-Termius (Android client):
-Delete sends Ctrl-H
+Android/Mobile Terminal Clients support tested
+---------------------------------
+1. JuiceSSH
+2. Termius
 
 
 Toggle session search and selection memory (persistence)

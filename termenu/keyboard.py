@@ -23,7 +23,7 @@ ANSI_SEQUENCES = dict(
     ctrl_B = '\x02',
     ctrl_E = '\x05',
     ctrl_F = '\x06',
-    ctrl_backspace = '\x7f',
+    backspace = '\x7f',
     F1 = '\x1bOP',
     F2 = '\x1bOQ',
     F3 = '\x1bOR',
@@ -42,9 +42,9 @@ KEY_NAMES = dict((v,k) for k,v in ANSI_SEQUENCES.items())
 KEY_NAMES.update({
     '\x1b' : 'esc',
     '\n' : 'enter',
-    '\x1b[3~' : 'delete',
+    '\x7f' : 'delete',
     ' ': 'space',
-    '\x08' : 'backspace',
+    '\x7f' : 'backspace',
 })
 
 class RawTerminal(object):
