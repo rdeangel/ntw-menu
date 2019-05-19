@@ -12,7 +12,7 @@ from termenu import ansi
 import termenu
 
 """
-ntw-menu - version 1.4
+ntw-menu - version 1.4.1
 
 This is a small terminal network session menu.                 
 
