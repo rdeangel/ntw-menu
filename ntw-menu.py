@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import warnings
 import configparser
 import os
 import sys
@@ -12,7 +13,7 @@ from termenu import ansi
 import termenu
 
 """
-ntw-menu - version 1.4.1
+ntw-menu - version 1.4.2
 
 This is a small terminal network session menu.                 
 
@@ -57,6 +58,7 @@ def counter(seconds):
         ansi.back()
         countdown-=1
         time.sleep(1)
+
 
 def open_terminal_session(conn_proto, conn_port, user, host, 
     back_to_menu_timer, connection_timeout):
@@ -218,8 +220,10 @@ def main():
         os.path.dirname(os.path.realpath(__file__)), static_dev_list)
     if os.path.isfile(static_dev_list_file):
         try:
-            static_list_data = np.loadtxt(static_dev_list_file, 
-                dtype=str, delimiter=",", skiprows=int(1))       
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                static_list_data = np.loadtxt(static_dev_list_file,
+                    dtype=str, delimiter=",", skiprows=int(1))
         except:
             load_error = ("Error: it is not possible to correctly load "
                 + "data from file: " + static_dev_list_file + "\n")
@@ -231,8 +235,10 @@ def main():
         os.path.dirname(os.path.realpath(__file__)), import_dev_list)
     if os.path.isfile(import_dev_list_file):
         try:
-            import_list_data = np.loadtxt(import_dev_list_file, 
-                dtype=str, delimiter=",", skiprows=int(1))
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                import_list_data = np.loadtxt(import_dev_list_file,
+                    dtype=str, delimiter=",", skiprows=int(1))
         except:
             load_error = ("Error: it is not possible to correctly load "
                 + "data from file: " + import_dev_list_file + "\n")
