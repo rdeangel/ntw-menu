@@ -7,6 +7,7 @@ import fcntl
 import termios
 import select
 import errno
+from . import ansi
 
 STDIN = sys.stdin.fileno()
 
@@ -20,10 +21,12 @@ ANSI_SEQUENCES = dict(
     insert = '\x1b[2~',
     pageUp = '\x1b[5~',
     pageDown = '\x1b[6~',
+    backspace = '\x7f',
     ctrl_B = '\x02',
     ctrl_E = '\x05',
     ctrl_F = '\x06',
-    backspace = '\x7f',
+    ctrl_R = '\x12',
+    ctrl_W = '\x17',
     F1 = '\x1bOP',
     F2 = '\x1bOQ',
     F3 = '\x1bOR',
@@ -36,6 +39,66 @@ ANSI_SEQUENCES = dict(
     F10 = '\x1b[21~',
     F11 = '\x1b[23~',
     F12 = '\x1b[24~',
+    ctrl_F1 = '\x1b[1;5P',
+    ctrl_F2 = '\x1b[1;5Q',
+    ctrl_F3 = '\x1b[1;5R',
+    ctrl_F4 = '\x1b[1;5S',
+    ctrl_F5 = '\x1b[15;5~',
+    ctrl_F6 = '\x1b[17;5~',
+    ctrl_F7 = '\x1b[18;5~',
+    ctrl_F8 = '\x1b[19;5~',
+    ctrl_F9 = '\x1b[20;5~',
+    ctrl_F10 = '\x1b[21;5',
+    ctrl_F11 = '\x1b[23;5~',
+    ctrl_F12 = '\x1b[24;5~',
+    shift_F1 = '\x1b[1;2P',
+    shift_F2 = '\x1b[1;2Q',
+    shift_F3 = '\x1b[1;2R',
+    shift_F4 = '\x1b[1;2S',
+    shift_F5 = '\x1b[15;2~',
+    shift_F6 = '\x1b[17;2~',
+    shift_F7 = '\x1b[18;2~',
+    shift_F8 = '\x1b[19;2~',
+    shift_F9 = '\x1b[20;2~',
+    shift_F10 = '\x1b[21;2~',
+    shift_F11 = '\x1b[23;2~',
+    shift_F12 = '\x1b[24;2~',
+    ctrl_shift_F1 = '\x1b[1;6P',
+    ctrl_shift_F2 = '\x1b[1;6Q',
+    ctrl_shift_F3 = '\x1b[1;6R',
+    ctrl_shift_F4 = '\x1b[1;6S',
+    ctrl_shift_F5 = '\x1b[15;6~',
+    ctrl_shift_F6 = '\x1b[17;6~',
+    ctrl_shift_F7 = '\x1b[18;6~',
+    ctrl_shift_F8 = '\x1b[19;6~',
+    ctrl_shift_F9 = '\x1b[20;6~',
+    ctrl_shift_F10 = '\x1b[21;6~',
+    ctrl_shift_F11 = '\x1b[23;6~',
+    ctrl_shift_F12 = '\x1b[24;6~',
+    alt_shift_F1 = '\x1b[1;4P',
+    alt_shift_F2 = '\x1b[1;4Q',
+    alt_shift_F3 = '\x1b[1;4R',
+    alt_shift_F4 = '\x1b[1;4S',
+    alt_shift_F5 = '\x1b[15;4~',
+    alt_shift_F6 = '\x1b[17;4~',
+    alt_shift_F7 = '\x1b[18;4~',
+    alt_shift_F8 = '\x1b[19;4~',
+    alt_shift_F9 = '\x1b[20;4~',
+    alt_shift_F10 = '\x1b[21;4~',
+    alt_shift_F11 = '\x1b[23;4~',
+    alt_shift_F12 = '\x1b[24;4~',
+    ctrl_alt_shift_F1 = '\x1b[1;8P',
+    ctrl_alt_shift_F2 = '\x1b[1;8Q',
+    ctrl_alt_shift_F3 = '\x1b[1;8R',
+    ctrl_alt_shift_F4 = '\x1b[1;8S',
+    ctrl_alt_shift_F5 = '\x1b[15;8~',
+    ctrl_alt_shift_F6 = '\x1b[17;8~',
+    ctrl_alt_shift_F7 = '\x1b[18;8~',
+    ctrl_alt_shift_F8 = '\x1b[19;8~',
+    ctrl_alt_shift_F9 = '\x1b[20;8~',
+    ctrl_alt_shift_F10 = '\x1b[21;8~',
+    ctrl_alt_shift_F11 = '\x1b[23;8~',
+    ctrl_alt_shift_F12 = '\x1b[24;8~'
 )
 
 KEY_NAMES = dict((v,k) for k,v in ANSI_SEQUENCES.items())
@@ -45,7 +108,7 @@ KEY_NAMES.update({
     '\x7f' : 'delete',
     ' ': 'space',
     '\x7f' : 'backspace',
-})
+})#^[[3~
 
 class RawTerminal(object):
     def __init__(self, blocking=True):

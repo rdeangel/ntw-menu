@@ -1,8 +1,11 @@
 import io
+import os
 import sys
+import configparser
 import shelve
 import re
 from pyfiglet import Figlet
+from random import randint
 from . import ansi
 
 def show_menu(title, options, default=None, height=None, width=None,
@@ -10,20 +13,6 @@ def show_menu(title, options, default=None, height=None, width=None,
     """
     Shows an interactive menu in the terminal.
 
-    Arguments:
-        options: list of menu options
-        default: initial option to highlight
-        height: maximum height of the menu
-        width: maximum width of the menu
-        precolored: allow strings with embedded ANSI commands
-
-        * If an option is a 2-tuple, the first item will be displayed and the
-          second item will be returned.
-        * If menu is cancelled (Esc pressed), returns None.
-        *
-    Notes:
-        * You can pass OptionGroup objects to `options` to create sub-headers
-          in the menu.
     """
 
     plugins = [FilterPlugin()]
@@ -78,7 +67,9 @@ class Plugin(object):
         #allow calls to fall through to parent plugins when method not defined
         return getattr(self.parent, name)
 
+
 class Termenu(object):
+
     class _Option(object):
         def __init__(self, option, **attrs):
             if isinstance(option, tuple) and len(option) == 2:
@@ -91,24 +82,264 @@ class Termenu(object):
             self.attrs = attrs
 
     def __init__(self, options, menu_lev, cursor, scroll, filter_text, 
-        height, width, memory, selection_memory,
-        shelf, default=None, heartbeat=None, plugins=None):
+        height, width, memory, shelf, menu_color, user_config_file, 
+        default=None, heartbeat=None, plugins=None):
         for plugin in plugins or []:
             register_plugin(self, plugin)
         self.options = self._make_option_objects(options)
         self.menu_lev = menu_lev
-        self.height = min(height or 10, len(self.options))
+        self.height = min((get_terminal_size()[1]-10) or 10, len(self.options))
+        self.termwidth_prev = get_terminal_size()[0]
+        self.termheight_prev = get_terminal_size()[1]
         self.width = self._compute_width(width, self.options)
         self.cursor = cursor
         self.scroll = scroll
         self.filter_text = filter_text
         self.memory = memory
-        self.selection_memory = selection_memory
         self.shelve_file = shelf
+        self.menu_color = menu_color
+        self.user_config_file = user_config_file
+        self.filter_color_bg_prev = ""
         self._heartbeat = heartbeat
         self._aborted = False
         self._lineCache = {}
         self._set_default(default)
+
+    #saves default in-menu color changes at menu start
+    def save_user_default_color(self):
+        try:
+            user_config = configparser.ConfigParser(defaults=None, allow_no_value=False,
+                strict=True)
+            user_config.optionxform = str
+            user_config.read(self.user_config_file)
+            user_config.set('MENU_COLORS',
+                'Title_Color', str(self.menu_color['title_color']))
+            user_config.set('MENU_COLORS',
+                'Text_Color', str(self.menu_color['text_color']))
+            user_config.set('MENU_COLORS',
+                'Text_Active', str(self.menu_color['text_active']))
+            user_config.set('MENU_COLORS',
+                'Text_Active_Bg', str(self.menu_color['text_active_bg']))
+            user_config.set('MENU_COLORS',
+                'Filter_Color', str(self.menu_color['filter_color']))
+            user_config.set('MENU_COLORS',
+                'Filter_Color_Bg', str(self.menu_color['filter_color_bg']))
+            user_config.set('MENU_COLORS',
+                'Session_Color', str(self.menu_color['session_color']))
+            user_config.set('MENU_COLORS',
+                'Cursor_Color', str(self.menu_color['cursor_color']))
+            user_config.set('MENU_COLORS',
+                'Cursor_Exit_Color', str(self.menu_color['cursor_exit_color']))
+            user_config.set('MENU_COLORS',
+                'Screen_Color', str(self.menu_color['screen_color']))
+            user_config.set('MENU_COLORS',
+                'Screen_Exit_Color', str(self.menu_color['screen_exit_color']))
+            user_config.set('MENU_COLORS',
+                'Bright_Text', str(self.menu_color['bright_text']))
+            with open(self.user_config_file, 'w') as usr_write_file:
+                user_config.write(usr_write_file)
+        except:
+            print("issue with saving")
+
+    #loads color presets from user config file
+    def load_color_presets(self, color_preset_var):
+        preset_num = color_preset_var.split("self.color_preset_")[1]
+        preset_item = "Color_Preset_" + preset_num
+
+        #loads presets from user config file
+        try:
+            user_config = configparser.ConfigParser(defaults=None, allow_no_value=False,
+                strict=True)
+            user_config.optionxform = str
+            user_config.read(self.user_config_file)
+            exec(color_preset_var + ' = (user_config["MENU_COLORS"]["' + preset_item + '"])')
+        except:
+            print("Error: it is not possible to load color presets from file: "
+                + self.user_config_file)
+            sys.exit()
+
+        #estabilishes if presets are defined in user config 
+        #file or if main config preset should be used
+        try:
+            preset_user_config = eval(
+                'True if self.color_preset_{0} != "" else False'.format(preset_num))
+        except:
+            preset_user_config = False
+        if preset_user_config:
+            color_preset = eval(
+                'self.color_preset_{0}.split(",")'.format(preset_num))
+        else:
+            color_preset = eval(
+                'self.menu_color["color_preset_{0}"].split(",")'.format(preset_num))         
+
+        #assigns the preset to the individual color parameters
+        self.menu_color['title_color'] = color_preset[0]
+        self.menu_color['text_color'] = color_preset[1]
+        self.menu_color['text_active'] = color_preset[2]
+        self.menu_color['text_active_bg'] = color_preset[3]
+        self.menu_color['filter_color'] = color_preset[4]
+        self.menu_color['filter_color_bg'] = color_preset[5]
+        self.menu_color['session_color'] = color_preset[6]
+        self.menu_color['cursor_color'] = color_preset[7]
+        self.menu_color['cursor_exit_color'] = color_preset[8]
+        self.menu_color['screen_color'] = color_preset[9]
+        self.menu_color['screen_exit_color'] = color_preset[10]
+        if color_preset[11] == "True":
+            self.menu_color['bright_text'] = True
+        else:
+            self.menu_color['bright_text'] = False
+        if self.menu_color['screen_color'] != "":
+            ansi.change_screen_color(self.menu_color['screen_color'])
+        if self.menu_color['cursor_color'] != "":
+            ansi.change_cursor_color(self.menu_color['cursor_color'])
+
+    #randomize all color parameters at once
+    def color_func_1(self):
+        text_color = str(randint(0, 255))
+        text_active = str(randint(0, 255))
+        text_active_bg = str(randint(0, 255))
+        self.menu_color['title_color'] = text_color
+        self.menu_color['text_color'] = text_color
+        self.menu_color['text_active'] = text_active
+        self.menu_color['text_active_bg'] = text_active_bg
+        if self.menu_color['filter_color_bg'] != "":
+            self.menu_color['filter_color'] = text_active
+            self.menu_color['filter_color_bg'] = text_active_bg
+        else:
+            self.menu_color['filter_color'] = text_color
+        self.menu_color['session_color'] = text_color
+        self.menu_color['cursor_color'] = ""
+        self.menu_color['cursor_exit_color'] = ""
+        self.menu_color['screen_color'] = ""
+        self.menu_color['screen_exit_color'] = ""
+        self.menu_color['bright_text'] = bool(randint(0, 1))
+
+    #changes menu text and session colors only
+    def color_func_2(self):
+        text_color = str(randint(0, 255))
+        self.menu_color['title_color'] = text_color
+        self.menu_color['text_color'] = text_color
+        self.menu_color['session_color'] = text_color
+        if self.menu_color['filter_color_bg'] == "":
+            self.menu_color['filter_color'] = text_color
+
+    #change selection colors and filters simultaneously and randomly
+    def color_func_3(self):
+        text_active = str(randint(0, 255))
+        text_active_bg = str(randint(0, 255))
+        self.menu_color['text_active'] = text_active
+        self.menu_color['text_active_bg'] = text_active_bg
+        self.menu_color['filter_color'] = text_active
+        self.menu_color['filter_color_bg'] = text_active_bg
+
+    #change selection colors and filters (text only) simultaneously and randomly
+    def color_func_4(self):
+        text_active = str(randint(0, 255))
+        self.menu_color['text_active'] = text_active
+        self.menu_color['filter_color'] = text_active
+
+    #change selection active only both background and text randomly 
+    def color_func_5(self):
+        text_active = str(randint(0, 255))
+        text_active_bg = str(randint(0, 255))
+        self.menu_color['text_active'] = text_active
+        self.menu_color['text_active_bg'] = text_active_bg
+
+    #change selection active only and text only
+    def color_func_6(self):
+        text_active = str(randint(0, 255))
+        self.menu_color['text_active'] = text_active
+
+    #change filter background and text (if background is set)
+    def color_func_7(self):
+        filter_color = str(randint(0, 255))
+        if self.menu_color['filter_color_bg'] != "":
+            filter_color_bg = str(randint(0, 255))
+            self.menu_color['filter_color'] = filter_color
+            self.menu_color['filter_color_bg'] = filter_color_bg
+        else:
+            self.menu_color['filter_color'] = filter_color
+
+    #change filter text only
+    def color_func_8(self):
+        filter_color = str(randint(0, 255))
+        self.menu_color['filter_color'] = filter_color
+
+    #switches filter background on and off
+    def color_func_9(self):
+        try:
+            Termenu.filter_color_bg_prev
+        except AttributeError:
+            Termenu.filter_color_bg_prev = self.menu_color['text_active_bg']
+        if self.menu_color['filter_color_bg'] != "":
+            Termenu.filter_color_bg_prev = self.menu_color['filter_color_bg']
+            self.menu_color['filter_color_bg'] = ""
+        else:
+            self.menu_color['filter_color_bg'] = Termenu.filter_color_bg_prev
+
+    #changes screen color randomly
+    def color_func_10(self):
+        screen_color_dec = random.randint(0,16777215)
+        screen_color_hex = str(hex(screen_color_dec))
+        self.menu_color['screen_color'] ='#'+ hex_number[2:]
+        ansi.change_screen_color(self.menu_color['screen_color'])
+
+    #switches bright text on and off
+    def color_func_11(self):
+        if self.menu_color['bright_text'] is False:
+            self.menu_color['bright_text'] = True
+        else:
+            self.menu_color['bright_text'] = False
+
+    def color_func_12(self):
+        Termenu.save_user_default_color(self)
+
+    #save color presets to user config file
+    def save_color_presets(self, color_preset_var):
+        preset_num = "Color_Preset_" + color_preset_var.split("self.color_preset_")[1]
+        comma_delimited_preset = (
+            self.menu_color['title_color'] + "," +
+            self.menu_color['text_color'] + "," +
+            self.menu_color['text_active'] + "," +
+            self.menu_color['text_active_bg'] + "," +
+            self.menu_color['filter_color'] + "," +
+            self.menu_color['filter_color_bg'] + "," +
+            self.menu_color['session_color'] + "," +
+            self.menu_color['cursor_color'] + "," +
+            self.menu_color['cursor_exit_color'] + "," +
+            self.menu_color['screen_color'] + "," +
+            self.menu_color['screen_exit_color'] + "," +
+            str(self.menu_color['bright_text']))
+        try:
+            user_config = configparser.ConfigParser(defaults=None, allow_no_value=False,
+                strict=True)
+            user_config.optionxform = str
+            user_config.read(self.user_config_file)
+            exec('user_config.set("MENU_COLORS", "' + preset_num + '", comma_delimited_preset)')
+            with open(self.user_config_file, 'w') as usr_write_file:
+                 user_config.write(usr_write_file)
+        except:
+            print("Error: it is not possible to load color presets from file: "
+                + self.user_config_file)
+
+    #dinamically creates functions for F1-F12 key function combinations
+    for i in range(12):
+        f_item = str(i+1)
+        shift_funcs = ('''
+def _on_shift_F{0}(self):
+    Termenu.color_func_{0}(self)
+    return self.return_to_correct_menu(always=True)
+
+def _on_alt_shift_F{0}(self):
+    Termenu.load_color_presets(self, "self.color_preset_{0}")
+    return self.return_to_correct_menu(always=True)
+
+def _on_ctrl_alt_shift_F{0}(self):
+    Termenu.save_color_presets(self, "self.color_preset_{0}")
+    return self.return_to_correct_menu(always=True)
+        '''.format(f_item))
+        exec(shift_funcs)
+
 
     def get_result(self):
         if self._aborted:
@@ -121,11 +352,46 @@ class Termenu(object):
                 except:
                     return False, 1, 0, 0, []
             return (selected[0], self.menu_lev, self.cursor,
-            self.scroll, self.filter_text)
+                self.scroll, self.filter_text)
+
+    def clear_full_menu(clear_screen=False):
+        termheight = get_terminal_size()[1]
+        if clear_screen:
+            ansi.clear_screen()
+        else:
+            ansi.down(termheight)
+            for i in range(termheight):
+                ansi.clear_line()
+                ansi.up()
+            #ansi.clear_line()
+            #ansi.up(termheight)
+
+    def refresh(self, menu_lev, always=False):
+        Termenu.termwidth_new = get_terminal_size()[0]
+        Termenu.termheight_new = get_terminal_size()[1]
+        if ((Termenu.termheight_new != self.termheight_prev) or
+            (Termenu.termwidth_new != self.termwidth_prev) or 
+            (always == True)):
+            self.termwidth_prev = Termenu.termwidth_new  
+            self.termheight_prev = Termenu.termheight_new  
+            if self.menu_lev == 1:
+                return 101
+            if self.menu_lev == 2:
+                return 102
+
+    def return_to_correct_menu(self, always=False):
+        #Retun menu level for correct refresh
+        new_menu_lev = self.refresh(self.menu_lev, always)
+        if (new_menu_lev == 101) or (new_menu_lev == 102):
+            self.menu_lev = new_menu_lev
+            return True
+        else:
+            return False
 
     @pluggable
     def show(self):
         from termenu import keyboard
+        termheight = get_terminal_size()[1]
         ansi.hide_cursor()
         if self.filter_text == None:
             self._print_menu()
@@ -135,6 +401,7 @@ class Termenu(object):
         else:
             self._on_key('')
             self._print_menu()
+
         ansi.save_position()
         try:
             for key in keyboard.keyboard_listener(self._heartbeat):
@@ -144,20 +411,14 @@ class Termenu(object):
                 self._goto_top()
                 if str(self.filter_text) == ('[]' or ''):
                     self.filter_text = None
+                    ansi.up(termheight)
                     self._print_menu()
                 else:
+                    ansi.up(termheight)
                     self._print_menu()
         finally:
             self._clear_menu()
             ansi.show_cursor()
-
-    def clear_full_menu():
-        ansi.clear_screen()
-        termheight = get_terminal_size()[1]
-        for i in range(termheight):
-            ansi.down(1)
-            ansi.clear_line()
-        ansi.up(termheight-1)
 
     @pluggable
     def _goto_top(self):
@@ -220,18 +481,19 @@ class Termenu(object):
             options.append(
                 ("(%s)" if i == self.cursor else "%s") % option.text)
         return " ".join(options)
-    
-    @pluggable
-    def _on_key(self, key):
-        func = "_on_" + key
-        if hasattr(self, func):
-            return getattr(self, func)()
             
     @pluggable
     def _return_filter_text(self, text, cursor, scroll):
         self.filter_text = list(text)
         self.filter_cursor = cursor
         self.filter_scroll = scroll
+
+    @pluggable
+    def _on_key(self, key):
+        func = "_on_" + key
+        if hasattr(self, func):
+            return getattr(self, func)()
+        return self.return_to_correct_menu()
 
     @pluggable
     def _on_heartbeat(self):
@@ -243,12 +505,14 @@ class Termenu(object):
             self.cursor += 1
         elif self.scroll + height < len(self.options):
             self.scroll += 1
+        return self.return_to_correct_menu()
 
     def _on_up(self):
         if self.cursor > 0:
             self.cursor -= 1
         elif self.scroll > 0:
             self.scroll -= 1
+        return self.return_to_correct_menu()
 
     def _on_pageDown(self):
         height = min(self.height, len(self.options))
@@ -258,6 +522,7 @@ class Termenu(object):
             self.scroll += height
         else:
             self.scroll = len(self.options) - height
+        return self.return_to_correct_menu()
 
     def _on_pageUp(self):
         height = min(self.height, len(self.options))
@@ -267,6 +532,8 @@ class Termenu(object):
             self.scroll -= height
         else:
             self.scroll = 0
+        return self.return_to_correct_menu()
+
 
     def _on_ctrl_B(self):
         height = min(self.height, len(self.options))
@@ -276,6 +543,7 @@ class Termenu(object):
             self.scroll -= height
         else:
             self.scroll = 0
+        return self.return_to_correct_menu()
             
     def _on_ctrl_F(self):
         height = min(self.height, len(self.options))
@@ -285,10 +553,15 @@ class Termenu(object):
             self.scroll += height
         else:
             self.scroll = len(self.options) - height
+        return self.return_to_correct_menu()
     
     def _on_ctrl_E(self):
+        termheight = get_terminal_size()[1]
         self.menu_lev = 100
         return self.menu_lev
+
+    def _on_ctrl_R(self):
+        return self.return_to_correct_menu(always=True)
 
     def _on_home(self):
         self.cursor = 0
@@ -297,41 +570,40 @@ class Termenu(object):
     def _on_end(self):
         self.scroll = len(self.options) - self.height
         self.cursor = self.height - 1
-    
+
     @pluggable
     def _on_esc(self):
         if self.menu_lev > 1:
             self.menu_lev = self.menu_lev-1
             return True
         else:
-            self.menu_lev = 102
+            self.menu_lev = 101
             return True
         
     @pluggable
     def _on_enter(self):
         return True # stop loop
-    
-    @pluggable
-    def _on_ctrl_backspace(self):
-        self.menu_lev = self.menu_lev-1
-        return True
 
     def _clear_cache(self):
         self._lineCache = {}
 
     @pluggable
     def _clear_menu(self):
-        ansi.restore_position()
-        termwidth = get_terminal_size()[0]
-        termheight = get_terminal_size()[1]
-        for i in xrange(termheight):
-            ansi.clear_line()
-            ansi.up()
-        ansi.back(termwidth)
+        clear_menu()
         
     @pluggable
     def _print_menu(self):
-        ansi.write("\r")
+        termwidth = get_terminal_size()[0]
+        termheight = get_terminal_size()[1]
+        self.termwidth_prev = termwidth
+        self.termheight_prev = termheight
+
+        if self.cursor >= termheight-10:
+                self.cursor = 0
+        if len(self.options) >= termheight-8:
+            if (len(self.options) - (self.cursor+1)) == self.scroll:
+                self.scroll = len(self.options) - (termheight-10)
+        option_count = 0
         for index, option in enumerate(self._get_window()):
             option = option.text
             option = self._adjust_width(option)
@@ -341,27 +613,22 @@ class Termenu(object):
             else:
                 ansi.write(option + "\n")
                 self._lineCache[index] = option
+            option_count+=1
+        if option_count <= termheight - 12:
+            self.scroll = 0
+
         if self.memory and (len(self.options) > 0):
             shelf_store = shelve.open(self.shelve_file)
             if self.menu_lev == 1:
-                if self.selection_memory:
-                    shelf_store['dev_cursor'] = self.cursor
-                    shelf_store['dev_scroll'] = self.scroll
-                else:
-                    shelf_store['dev_cursor'] = 0
-                    shelf_store['dev_scroll'] = 0
+                shelf_store['dev_cursor'] = self.cursor
+                shelf_store['dev_scroll'] = self.scroll
                 shelf_store['dev_filter'] = self.filter_text
             if self.menu_lev == 2:
                 shelf_store['proto_cursor'] = self.cursor
                 shelf_store['proto_scroll'] = self.scroll
                 shelf_store['proto_filter'] = self.filter_text
             shelf_store.close()
-    
-    @pluggable
-    def _on_key(self, key):
-        func = "_on_" + key
-        if hasattr(self, func):
-            return getattr(self, func)()
+        ansi.clear_eol()
 
     @pluggable
     def _adjust_width(self, option):
@@ -374,8 +641,7 @@ class Termenu(object):
     @pluggable
     def _refilter(self):
         cursor = self.cursor
-        scroll = self.scroll
-        
+        scroll = self.scroll        
         
     @pluggable
     def _decorate_flags(self, index):
@@ -386,22 +652,12 @@ class Termenu(object):
             moreBelow = (
                 self.scroll + self.height < len(self.options) and 
                 index == self.height - 1),
+            menu_color = ( self.menu_color ),
         )
 
     @pluggable
     def _decorate(self, option, **flags):
         active = flags.get("active", False)
-        selected = flags.get("selected", False)
-
-        # add selection / cursor decorations
-        if active and selected:
-            option = "*" + ansi.colorize(option, "red", "white")
-        elif active:
-            option = " " + ansi.colorize(option, "black", "white")
-        elif selected:
-            option = "*" + ansi.colorize(option, "red")
-        else:
-            option = " " + option
 
         return self._decorate_indicators(option, **flags)
 
@@ -412,19 +668,22 @@ class Termenu(object):
 
         # add more above/below indicators
         if moreAbove:
-            option = option + " " + ansi.colorize("^", "white", bright=True)
+            option = option + " " + ansi.colorize("^", self.menu_color['text_color'],
+                bright=self.menu_color['bright_text'])
         elif moreBelow:
-            option = option + " " + ansi.colorize("v", "white", bright=True)
+            option = option + " " + ansi.colorize("v", self.menu_color['text_color'],
+                bright=self.menu_color['bright_text'])
         else:
             option = option + "  "
 
         return option
 
 class FilterPlugin(Plugin):
-    def __init__(self, filter_text, filter_cursor, filter_scroll):
+    def __init__(self, filter_text, filter_cursor, filter_scroll, menu_color):
         self.text = filter_text
         self.cursor = filter_cursor
         self.scroll = filter_scroll
+        self.menu_color = menu_color
 
     def _make_option_objects(self, options):
         objects = self.parent._make_option_objects(options)
@@ -460,14 +719,35 @@ class FilterPlugin(Plugin):
 
     def _print_menu(self):
         self.parent._print_menu()
-        
-        for i in xrange(0, self.host.height - len(self.host.options)):
+        termheight = get_terminal_size()[1]
+
+        if (self.host.height == (termheight-10)) and (len(self.host.options) >= self.host.height):
+            #print(termheight, self.host.height, len(self.host.options), self.cursor, self.scroll)
+            #sys.exit(0)
+            for i in range(0, self.host.height - len(self.host.options)):
+                ansi.clear_eol()
+                ansi.write("\n")
+            if self.text is not None and self.text != []:
+                ansi.write(ansi.colorize("/" + "".join(self.text), self.menu_color['filter_color'], 
+                    self.menu_color['filter_color_bg'], self.menu_color['bright_text']))
+                ansi.write(ansi.colorize("\0", self.menu_color['cursor_color'],
+                    self.menu_color['cursor_color'], True))
+                ansi.change_cursor_color(self.menu_color['cursor_color'])
+                ansi.show_cursor()
+        else:
+            #print(termheight, self.host.cursor, self.host.scroll, len(self.host.options))
+            #sys.exit(0)
+            for i in range(0, (termheight - (len(self.host.options)+10))):
+                ansi.clear_eol()
+                ansi.write("\n")
+            if self.text is not None and self.text != []:
+                ansi.write(ansi.colorize("/" + "".join(self.text), self.menu_color['filter_color'], 
+                    self.menu_color['filter_color_bg'], self.menu_color['bright_text']))
+                ansi.write(ansi.colorize("\0", self.menu_color['cursor_color'],
+                    self.menu_color['cursor_color'], False))
+                ansi.change_cursor_color(self.menu_color['cursor_color'])
+                ansi.show_cursor()
             ansi.clear_eol()
-            ansi.write("\n")
-        if self.text is not None:
-            ansi.write("/" + "".join(self.text))
-            ansi.show_cursor()
-        ansi.clear_eol()
 
     def _refilter(self):
         width_size, height_size = get_terminal_size()
@@ -491,23 +771,21 @@ class FilterPlugin(Plugin):
             except:
                 break
             record_counter+=1
-
         if (((len(self.host.options) == 1) and (self.host.cursor == 1)) or
-        ((self.host.cursor + self.host.scroll) >= len(self.host.options))):
+        ((self.host.cursor + self.host.scroll) >= len(self.host.options)) or
+        (self.host.cursor > height_size-11)):
             self.host.cursor = 0
             self.host.scroll = 0
             self.cursor = self.host.cursor
             self.scroll = self.host.scroll
         elif height_size-8 <= len(self.host.options):
-            if self.cursor > 0:
-                self.host.cursor = self.cursor
-            if self.scroll > 0:
-                self.host.scroll = self.scroll
+            self.host.cursor = self.cursor
+            self.host.scroll = self.scroll
             self.cursor = self.host.cursor
             self.scroll = self.host.scroll
+        #print(self.host.cursor, self.host.scroll)
         ansi.hide_cursor()
         self.parent._return_filter_text(text,self.cursor,self.scroll)
-
 
 class ColourPlugin(Plugin):
     def _decorate_flags(self, index):
@@ -521,25 +799,27 @@ class ColourPlugin(Plugin):
         hostname = flags.get("hostname", False)
         active = flags.get("active", False)
         selected = flags.get("selected", False)
+        menu_color = flags.get("menu_color", False)
         if active:
             if hostname:
-                option = ansi.colorize(option, "blue", "white", bright=True)
+                option = ansi.colorize(option, menu_color['text_active'], 
+                    menu_color['text_active_bg'], menu_color['bright_text'])
             else:
-                option = ansi.colorize(option, "black", "white")
+                option = ansi.colorize(option, menu_color['text_color'], 
+                    menu_color['text_bg'])
         elif hostname:
-            option = ansi.colorize(option, "white", bright=True)
-        if selected:
-            option = ansi.colorize("* ", "red") + option
-        else:
-            option = "  " + option
+            option = ansi.colorize(option, menu_color['text_color'], 
+                "", menu_color['bright_text'])
 
         return self.host._decorate_indicators(option, **flags)
 
 class TitlePyfigletPlugin(Plugin):
-    def __init__(self, title, subtitle, clearmenu):
+    def __init__(self, title, subtitle, clearmenu, color):
         self.title = title
         self.subtitle = subtitle
         self.clearmenu = clearmenu
+        self.color = color['title_color']
+        self.bright = color['bright_text']
 
     def _goto_top(self):
         self.parent._goto_top()
@@ -547,23 +827,27 @@ class TitlePyfigletPlugin(Plugin):
             ansi.up(8)
 
     def _print_menu(self):
+        ansi.hide_cursor()
         width_size, height_size = get_terminal_size()
         if len(self.host.options) == 1:
             counter_text = " (" + str(len(self.host.options)) + " option)"
         else:
-            counter_text = " (" + str(len(self.host.options)) + " options)"        
-        title_text = Figlet(font='small')
-        ansi.write(ansi.colorize("\n", "white", bright=True))
+            counter_text = " (" + str(len(self.host.options)) + " options)"   
+        title_text = Figlet(font='small', width=width_size)
+        ansi.write(ansi.colorize("\n", self.color, bright=self.bright))
         ansi.write(ansi.colorize(title_text.renderText(self.title), 
-            "white", bright=True))
+            self.color, bright=self.bright))
         ansi.write(ansi.colorize(
             self.subtitle + counter_text + " "*(width_size-(
                 len(self.subtitle)+len(counter_text))
-            ) + "\n\n", "white", bright=True)
+            ) + "\n", self.color, bright=self.bright)
         )
+        ansi.clear_eol()
+        ansi.down()
         return self.parent._print_menu()
 
     def _clear_menu(self):
+        ansi.hide_cursor()
         self.parent._clear_menu()
         if self.clear_menu:
             ansi.up(8)
@@ -596,6 +880,16 @@ def get_terminal_size():
         return w, h
     except OSError:
         return 80, 25
+
+def clear_menu():
+    ansi.restore_position()
+    termwidth = get_terminal_size()[0]
+    termheight = get_terminal_size()[1]
+    for i in xrange(termheight):
+        ansi.clear_line()
+        ansi.up()
+    ansi.back(termwidth)
+
 
 if __name__ == "__main__":
     odds = OptionGroup("Odd Numbers", [

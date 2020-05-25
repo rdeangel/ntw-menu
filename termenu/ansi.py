@@ -8,7 +8,36 @@ import os
 COLORS = dict(black=0, red=1, green=2, yellow=3, blue=4, 
     magenta=5, cyan=6, white=7, default=9)
 
-def write(text):
+def is_color_valid(color_string,text_only=False):
+    try: int(color_string)
+    except:
+        if (color_string in COLORS) or (color_string == ""):
+            return True
+        else:
+            return False
+    else:
+        if not text_only:
+            if int(color_string) < 256:
+                return True
+            else:
+                return False
+
+def is_hex_color_valid(color_string):
+    if color_string[0] == "#":
+        color_string = color_string[1:]
+    try: int(color_string,16)
+    except:
+        if (color_string in COLORS) or (color_string == ""):
+            return True
+        return False
+    else:
+        if int(color_string,16) <= 16777215:
+            if len(color_string) == 6:
+                return True
+        else:
+            return False
+
+def write(text, color="", background="", bright=False, open=False):
     written = 0
     fd = sys.stdout.fileno()
     while written < len(text):
@@ -58,11 +87,53 @@ def hide_cursor():
 def show_cursor():
     write("\x1b[?25h")
 
-def colorize(string, color, background=None, bright=False):
-    color = 30 + COLORS.get(color, COLORS["default"])
-    background = 40 + COLORS.get(background, COLORS["default"])
-    return "\x1b[0;%d;%d;%dm%s\x1b[0;m" % (
-        int(bright), color, background, string)
+def change_cursor_color(cursor_color):
+    if cursor_color != "":
+        write('\033]12;%s\007' % (cursor_color))
+
+def reset_cursor_color():
+    write('\033]12;white\007')
+
+def change_screen_color(screen_color):
+    if screen_color != "":
+        write('\033]11;%s\007' % (screen_color))
+
+def colorize(string, color, background="", bright=False, open=False):
+    if bright == False:
+        bright_str = ""
+    else:
+        bright_str = ";1"
+    if color == "":
+        color = ";"
+    if background == "":
+        background = ";"
+    if color == "" or str.isdigit(color):
+        if color != (""):
+            color = ";" + color
+        if background == ";":
+            if open is False:
+                return "\u001b[38;5%s%sm%s\u001b[0m" % (
+                    color, bright_str , string)
+            else:
+                return "\u001b[38;5%s%sm%s" % (
+                    color, bright_str , string)
+        else:
+            background = ";" + background
+            if open is False:
+                return "\u001b[38;5%sm\u001b[48;5%s%sm%s\u001b[0m" % (
+                    color, background, bright_str , string)
+            else:
+                return "\u001b[38;5%sm\u001b[48;5%s%sm%s" % (
+                    color, background, bright_str , string)
+    else:
+        color = 30 + COLORS.get(color, COLORS["default"])
+        background = 40 + COLORS.get(background, COLORS["default"])
+        if open is False:
+            return "\x1b[0;%d;%d;%dm%s\x1b[0;m" % (
+                int(bright), color, background, string)
+        else:
+            return "\x1b[0;%d;%d;%dm%s" % (
+                int(bright), color, background, string)
 
 def highlight(string, background):
     # adds background to a string, even if it's already colorized
