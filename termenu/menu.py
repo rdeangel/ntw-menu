@@ -279,9 +279,9 @@ class Termenu(object):
 
     #changes screen color randomly
     def color_func_10(self):
-        screen_color_dec = random.randint(0,16777215)
+        screen_color_dec = randint(0,16777215)
         screen_color_hex = str(hex(screen_color_dec))
-        self.menu_color['screen_color'] ='#'+ hex_number[2:]
+        self.menu_color['screen_color'] ='#'+ screen_color_hex[2:]
         ansi.change_screen_color(self.menu_color['screen_color'])
 
     #switches bright text on and off
