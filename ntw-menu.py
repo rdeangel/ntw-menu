@@ -184,7 +184,7 @@ def validate_preset(color_preset,preset_num):
         and (is_int(color_preset[2]) == is_int(color_preset[3]))):
         print("Error: color_preset_{0} <Text_Active> | <Text_Active_Bg> combination is incorrecly defined in config file".format(preset_num))
         sys.exit(0)
-    if color_preset[5] is not "":
+    if color_preset[5] != "":
         if not ((ansi.is_color_valid(color_preset[4]) and ansi.is_color_valid(color_preset[5]))
             and (is_int(str(color_preset[4])) == is_int(str(color_preset[5])))):
             print("Error: color_preset_{0} <Filter_Color> | <Filter_Color_Bg> combination is incorrecly defined in config file".format(preset_num))
@@ -1040,7 +1040,7 @@ use: -t|--colortable to lookup available colors and how
     if not ansi.is_color_valid(menu_color['session_color']):
         print("Error: <Session_Color> value is incorrecly entered")
         sys.exit(0)
-    if menu_color['filter_color_bg'] is not "":
+    if menu_color['filter_color_bg'] != "":
         if not ((ansi.is_color_valid(menu_color['filter_color']) and ansi.is_color_valid(menu_color['filter_color_bg']))
             and (is_int(str(menu_color['filter_color'])) == is_int(str(menu_color['filter_color_bg'])))):
             print("Error: <Filter_Color> | <Filter_Color_Bg> value combination is incorrectly entered")
