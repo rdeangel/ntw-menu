@@ -16,7 +16,7 @@ from email.mime.text import MIMEText
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 
 """
-ntw-menu_solarwinds_import.py - version 1.5
+ntw-menu_solarwinds_import.py - version 1.5.1
 
 This is a script to dinamically import a device list from Solarwinds
 
@@ -105,6 +105,7 @@ def main(nodeRegexArgv):
     config_file = os.path.join(
     os.path.dirname(os.path.realpath(__file__)),"config.ini"
     )
+    imported = False
 
     try:
         config = configparser.ConfigParser()
@@ -118,8 +119,8 @@ def main(nodeRegexArgv):
         email_on_import = (config["EMAIL_PARAMETERS"]
             ["EmailOnImport"])
         email_on_failure = (config["EMAIL_PARAMETERS"]
-            ["EmailOnFailure"])
-        sw_host = config["SOLARWINDS_PARAMETERS"]["SW_Host"]
+            ["EmailOnFailure"])        
+        sw_host = config["SOLARWINDS_PARAMETERS"]["SW_Host"].split(",")        
         sw_username = config["SOLARWINDS_PARAMETERS"]["SW_Username"]
         sw_password = config["SOLARWINDS_PARAMETERS"]["SW_Password"]
         email_server = config["EMAIL_PARAMETERS"]["EmailServer"]
@@ -150,7 +151,10 @@ def main(nodeRegexArgv):
         print("e-mail sent to " + admin_email_receiver_address)
 
 
-    def runNewDevicesList():
+    def runNewDevicesList(server_ip):
+    
+        ip = server_ip
+        
         try:
             item_dict = swis.query(
                 "SELECT DISTINCT "
@@ -186,7 +190,7 @@ def main(nodeRegexArgv):
                 
             return device_list_msg
         except:
-            print("ntw-menu device list failure to import device list!")
+            print("Failed to import device list from: " + ip +"\n")
             return ""
 
     script_runtime_msg = ("Script Runtime: " 
@@ -195,30 +199,53 @@ def main(nodeRegexArgv):
     headerSpacing = "\n"
     body_msg = ""
     requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
-    swis = orionsdk.SwisClient(sw_host, sw_username, sw_password, verify="")
 
-    runNewDevicesListResult = runNewDevicesList()
-    body_msg = runNewDevicesListResult
+    if len(sw_host) == 1:
+        try:
+            print("Trying to connect to and import from: " + sw_host[0])
+            swis = orionsdk.SwisClient(sw_host[0], sw_username, sw_password, verify="")
+            runNewDevicesListResult = runNewDevicesList(sw_host[0])
+            body_msg = runNewDevicesListResult
+            if body_msg != "":
+                imported = True
+        except:
+            print("Unable to connect to and import from: " + sw_host[0])
+    elif imported == False:
+        for ip in sw_host:
+            try:
+                if imported == False:
+                    print("Trying to connect to and import from: " + ip)
+                    swis = orionsdk.SwisClient(ip, sw_username, sw_password, verify="")
+                    runNewDevicesListResult = runNewDevicesList(ip)
+                    body_msg = runNewDevicesListResult
+                    if body_msg != "":
+                        imported = True
+            except:
+                print("Unable to connect to and import from: " + ip)
+            
+    #runNewDevicesListResult = runNewDevicesList()
+    #body_msg = runNewDevicesListResult
     
     if enable_email_notification == "True":
         #print("Testing availability of SMTP server: " + email_server)
-        email_test_result = test_email_server(email_server)
-        if email_test_result:
-            if body_msg != "":
-                if email_on_import == "True":
-                    body_msg = script_runtime_msg + "\n\n\n" + body_msg
-                    sendmail(body_msg)
-                    print("\nMessage Sent:\n" + separator_msg + body_msg 
-                        + separator_msg)
+        if imported == False:
+            email_test_result = test_email_server(email_server)
+            if email_test_result:
+                if body_msg != "":
+                    if email_on_import == "True":
+                        body_msg = script_runtime_msg + "\n\n\n" + body_msg
+                        sendmail(body_msg)
+                        print("\nMessage Sent:\n" + separator_msg + body_msg 
+                            + separator_msg)
+                else:
+                    if email_on_failure == "True":
+                        body_msg = (script_runtime_msg 
+                            + "\n\n\nntw-menu device list could not be imported!")
+                        sendmail(body_msg)
+                        print("Message Sent:\n" + separator_msg + body_msg 
+                            + separator_msg)
             else:
-                if email_on_failure == "True":
-                    body_msg = (script_runtime_msg 
-                        + "\n\n\nntw-menu device list could not be imported!")
-                    sendmail(body_msg)
-                    print("Message Sent:\n" + separator_msg + body_msg 
-                        + separator_msg)
-        else:
-            print("unable to send e-mail notifications")
+                print("unable to send e-mail notifications")
 
 if __name__ == "__main__":
     try:
