@@ -119,8 +119,8 @@ def main(nodeRegexArgv):
         email_on_import = (config["EMAIL_PARAMETERS"]
             ["EmailOnImport"])
         email_on_failure = (config["EMAIL_PARAMETERS"]
-            ["EmailOnFailure"])        
-        sw_host = config["SOLARWINDS_PARAMETERS"]["SW_Host"].split(",")        
+            ["EmailOnFailure"])
+        sw_host = config["SOLARWINDS_PARAMETERS"]["SW_Host"].split(",")
         sw_username = config["SOLARWINDS_PARAMETERS"]["SW_Username"]
         sw_password = config["SOLARWINDS_PARAMETERS"]["SW_Password"]
         email_server = config["EMAIL_PARAMETERS"]["EmailServer"]
