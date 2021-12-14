@@ -222,10 +222,7 @@ def main(nodeRegexArgv):
                         imported = True
             except:
                 print("Unable to connect to and import from: " + ip)
-            
-    #runNewDevicesListResult = runNewDevicesList()
-    #body_msg = runNewDevicesListResult
-    
+
     if enable_email_notification == "True":
         #print("Testing availability of SMTP server: " + email_server)
         if imported == False:
